@@ -61,10 +61,39 @@ Check `node_modules/next/dist/docs/` before writing Next.js code: Next 16 and Ca
 - Seat availability changes every second: never cache it. Render it dynamically inside `<Suspense>`.
 - Validate every server action input with Zod on the server, not only on the client.
 
+## Project structure
+
+Feature-based modules (bulletproof-react) with Next's Data Access Layer. Atomic Design is the vocabulary, not the folder names: `components/ui` holds the atoms, features hold the molecules and organisms, Next layouts and pages are the templates and pages.
+
+```
+src/
+├── app/            # routes only: page, layout, loading, error, route handlers. Compose features, no logic
+├── components/ui/  # atoms (shadcn): no domain logic
+├── features/<name>/
+│   ├── components/ # the feature's UI; Server Components unless interactive
+│   ├── hooks/      # client hooks used only by this feature
+│   ├── actions.ts  # 'use server': parse with Zod → call the service → revalidate/redirect. Thin
+│   ├── service.ts  # 'server-only' DAL: business rules, queries, transactions. Takes `db` as a parameter
+│   └── schemas.ts  # Zod schemas, shared by client and server
+├── hooks/          # shared client hooks, only once two features need one
+├── lib/            # configured libraries: auth, session (getCurrentUser/requireUser), utils
+└── db/             # schema, client, test database, seed
+```
+
+- **Imports flow one way:** `components/ui`, `hooks`, `lib`, `db` → `features` → `app`. A feature never imports another feature; `app/` composes them. Enforced by `import/no-restricted-paths` in `eslint.config.mjs`.
+- **No barrel files** (`index.ts` re-exports): import the file itself, so a server module can't leak into a client bundle through a re-export.
+- **Services take `db` as a parameter** (`holdSeats(db, input)`): the action passes Neon, tests pass PGlite.
+- **Tests sit next to the file** they test (`service.test.ts`).
+- **No repository layer over Drizzle:** Drizzle already is that abstraction.
+
 ## Conventions
 
 - Code, comments, UI text and commit messages in English.
-- Comments explain *why*, not *what*.
+- **Comments are documentation only** (Google TypeScript Style Guide + TSDoc):
+  - Every exported function (services, actions, hooks, components, helpers) and every exported table in `src/db/schema.ts` gets a TSDoc block: one sentence with what it does and its contract. Add `@param`/`@returns` only when the name and type aren't enough, `@throws` for errors the caller must handle, `@remarks` for the *why* a caller needs. Never put types in braces: TypeScript has them.
+  - No `//` comments inside code. If a block needs explaining, extract a well-named function. The only exceptions are tool directives (`eslint-disable-next-line`, `@ts-expect-error`), each with its reason.
+  - The *why* of decisions lives in the Tech Assessment, the README and the commit message, not in the code. Tests have no comments: the test name is the documentation. Next's route files (`page.tsx`, `layout.tsx`, `route.ts`) aren't documented.
+  - Enforced by `eslint-plugin-jsdoc` (`flat/recommended-tsdoc-error`, `require-jsdoc` on exports), `no-inline-comments` and `no-warning-comments` (TODOs go to Linear).
 - Server Components by default; `"use client"` only where there's interaction (the seat grid, the countdown).
 
 ## Commands (Andrés runs them)

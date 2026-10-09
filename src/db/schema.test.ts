@@ -6,10 +6,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import * as schema from './schema';
 
-// Runs the real migrations against an in-memory Postgres (PGlite), so the
-// constraints tested here are the ones that ship. PGlite has a single
-// connection: true concurrency is tested against a Neon branch instead.
-
 type Db = PgliteDatabase<typeof schema>;
 
 async function setup(): Promise<{ db: Db; seatIds: string[] }> {
@@ -50,7 +46,6 @@ function hold(db: Db, userId: string, seatId: string, expiresAt = new Date(Date.
   return db.insert(schema.ticket).values({ seatId, userId, holdGroup, priceCents: 45000, expiresAt });
 }
 
-// Drizzle wraps driver errors; the Postgres error code lives on `cause`.
 async function pgErrorCode(promise: Promise<unknown>) {
   try {
     await promise;

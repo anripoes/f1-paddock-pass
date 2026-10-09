@@ -14,9 +14,10 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-// Better Auth core table (its CLI also generates session, account and
-// verification). favoriteConstructorId is our additional field: the
-// Jolpica constructorId of the team the user supports.
+/**
+ * Better Auth's user, plus `favoriteConstructorId`: the Jolpica `constructorId`
+ * of the team the user supports.
+ */
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -28,7 +29,12 @@ export const user = pgTable('user', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Synced from Jolpica-F1. id = "<season>-<round>", e.g. "2026-19".
+/**
+ * A race synced from Jolpica-F1, with `id` = `"<season>-<round>"` (e.g. `"2026-19"`).
+ *
+ * @remarks
+ * The unique `(season, round)` index makes the sync idempotent.
+ */
 export const grandPrix = pgTable(
   'grand_prix',
   {
@@ -42,11 +48,17 @@ export const grandPrix = pgTable(
     syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // Makes the sync from the API idempotent.
     uniqueIndex('grand_prix_season_round_uq').on(t.season, t.round),
   ],
 );
 
+/**
+ * A grandstand of a Grand Prix: its price in integer cents and its seat layout.
+ *
+ * @remarks
+ * The unique `(grand_prix_id, name)` index also serves "sections of a Grand Prix",
+ * because `grand_prix_id` is its leftmost column.
+ */
 export const section = pgTable(
   'section',
   {
@@ -60,13 +72,19 @@ export const section = pgTable(
     seatsPerRow: smallint('seats_per_row').notNull(),
   },
   (t) => [
-    // Also serves "sections of a Grand Prix": grand_prix_id is its leftmost column.
     uniqueIndex('section_gp_name_uq').on(t.grandPrixId, t.name),
     check('section_price_positive', sql`${t.priceCents} > 0`),
     check('section_layout_positive', sql`${t.rows} > 0 AND ${t.seatsPerRow} > 0`),
   ],
 );
 
+/**
+ * A seat in a grandstand, identified by its row and number.
+ *
+ * @remarks
+ * The unique `(section_id, row, number)` index also serves "seats of a section",
+ * because `section_id` is its leftmost column.
+ */
 export const seat = pgTable(
   'seat',
   {
@@ -78,13 +96,28 @@ export const seat = pgTable(
     number: smallint('number').notNull(),
   },
   (t) => [
-    // Also serves "seats of a section": section_id is its leftmost column.
     uniqueIndex('seat_section_row_number_uq').on(t.sectionId, t.row, t.number),
   ],
 );
 
+/**
+ * A ticket's lifecycle: `held` becomes `confirmed` or `expired`; `cancelled` frees the seat.
+ */
 export const ticketStatus = pgEnum('ticket_status', ['held', 'confirmed', 'cancelled', 'expired']);
 
+/**
+ * One seat held or bought by one user.
+ *
+ * @remarks
+ * - `ticket_one_active_per_seat_uq` is the concurrent case: at most one `held` or
+ *   `confirmed` ticket per seat, enforced by the database, so a second hold fails
+ *   with `23505`. It also serves the availability lookup.
+ * - `ticket_user_created_idx` serves "My tickets", newest first.
+ * - `ticket_hold_has_expiry` rejects a hold without an expiry, which would block
+ *   a seat forever.
+ * - Seats held in one request share a `holdGroup`. `priceCents` is copied from the
+ *   section, so a later price change doesn't rewrite what the user paid.
+ */
 export const ticket = pgTable(
   'ticket',
   {
@@ -95,26 +128,18 @@ export const ticket = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => user.id),
-    // Seats held together in one request share a hold group.
     holdGroup: uuid('hold_group').notNull(),
     status: ticketStatus('status').notNull().default('held'),
-    // Copied from the section when the ticket is created, so a later
-    // price change doesn't rewrite what the user paid.
     priceCents: integer('price_cents').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
   },
   (t) => [
-    // The concurrent case: at most one active ticket per seat, enforced by
-    // the database. Two requests for the same seat → the second gets 23505.
-    // It also serves the availability lookup (one index scan per seat).
     uniqueIndex('ticket_one_active_per_seat_uq')
       .on(t.seatId)
       .where(sql`${t.status} IN ('held', 'confirmed')`),
-    // "My tickets", newest first.
     index('ticket_user_created_idx').on(t.userId, t.createdAt.desc()),
-    // A hold without an expiry would block a seat forever.
     check('ticket_hold_has_expiry', sql`${t.status} <> 'held' OR ${t.expiresAt} IS NOT NULL`),
   ],
 );
