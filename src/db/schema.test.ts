@@ -1,16 +1,12 @@
-import { PGlite } from '@electric-sql/pglite';
 import { sql } from 'drizzle-orm';
-import { drizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
-import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import type { Database } from './index';
 import * as schema from './schema';
+import { createTestDb } from './test-db';
 
-type Db = PgliteDatabase<typeof schema>;
-
-async function setup(): Promise<{ db: Db; seatIds: string[] }> {
-  const db = drizzle({ client: new PGlite(), schema });
-  await migrate(db, { migrationsFolder: 'drizzle' });
+async function setup(): Promise<{ db: Database; seatIds: string[] }> {
+  const db = await createTestDb();
 
   await db.insert(schema.user).values([
     { id: 'ana', name: 'Ana', email: 'ana@example.com' },
@@ -42,7 +38,7 @@ async function setup(): Promise<{ db: Db; seatIds: string[] }> {
 
 const holdGroup = '00000000-0000-0000-0000-000000000001';
 
-function hold(db: Db, userId: string, seatId: string, expiresAt = new Date(Date.now() + 10 * 60_000)) {
+function hold(db: Database, userId: string, seatId: string, expiresAt = new Date(Date.now() + 10 * 60_000)) {
   return db.insert(schema.ticket).values({ seatId, userId, holdGroup, priceCents: 45000, expiresAt });
 }
 
@@ -57,7 +53,7 @@ async function pgErrorCode(promise: Promise<unknown>) {
 }
 
 describe('ticket constraints', () => {
-  let db: Db;
+  let db: Database;
   let seatIds: string[];
 
   beforeEach(async () => {

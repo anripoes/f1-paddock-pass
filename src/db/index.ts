@@ -1,7 +1,10 @@
 import { Pool } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-serverless';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 
 import * as schema from './schema';
+
+export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 const connectionString = process.env.DATABASE_URL_POOLED ?? process.env.DATABASE_URL;
 
